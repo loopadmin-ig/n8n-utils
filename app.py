@@ -29,7 +29,6 @@ def generate_xlsx():
     meta_label_font = Font(name='Calibri', color='888888', size=10)
     meta_font = Font(name='Calibri', bold=True, size=11)
     total_fill = PatternFill(start_color='E8F5C8', end_color='E8F5C8', fill_type='solid')
-    subtotal_fill = PatternFill(start_color='F0F0F0', end_color='F0F0F0', fill_type='solid')
     thin_border = Border(bottom=Side(style='thin', color='DDDDDD'))
     group_fill = {
         'US':     PatternFill(start_color='EEF2FF', end_color='EEF2FF', fill_type='solid'),
@@ -96,13 +95,12 @@ def generate_xlsx():
         if not items:
             continue
 
-        group_start = current_row
         fill = group_fill.get(version)
 
         for item in items:
             inking = ', '.join(item.get('inking', [])) if isinstance(item.get('inking'), list) else item.get('inking', '')
             cutting = ', '.join(item.get('cutting', [])) if isinstance(item.get('cutting'), list) else item.get('cutting', '')
-            unit_price = item.get('selectedCost') or item.get('estimatedUnitPrice') or 0
+            unit_price = round(item.get('selectedCost') or item.get('estimatedUnitPrice') or 0, 2)
 
             ws.append([
                 item.get('version', ''),
@@ -113,11 +111,11 @@ def generate_xlsx():
                 inking,
                 cutting,
                 unit_price,
-                item.get('total', 0)
+                None  # placeholder, formula goes in below
             ])
 
-            for col in range(1, 10):
-                cell = ws.cell(current_row, col)
+            row = ws[current_row]
+            for cell in row:
                 if fill:
                     cell.fill = fill
                 cell.border = thin_border
@@ -126,22 +124,15 @@ def generate_xlsx():
             ws.cell(current_row, 3).number_format = '0.000'
             ws.cell(current_row, 4).number_format = '0.000'
             ws.cell(current_row, 5).number_format = '#,##0'
-            ws.cell(current_row, 8).number_format = '#,##0.0000'
+            ws.cell(current_row, 8).number_format = '#,##0.00'
+            ws.cell(current_row, 9).value = f'=E{current_row}*H{current_row}'
             ws.cell(current_row, 9).number_format = '#,##0.00'
             for col in [3, 4, 5, 8, 9]:
                 ws.cell(current_row, col).alignment = Alignment(horizontal='right')
 
             current_row += 1
 
-        ws.cell(current_row, 7).value = f'{version} Subtotal'
-        ws.cell(current_row, 7).font = Font(name='Calibri', bold=True, size=10)
-        ws.cell(current_row, 9).value = f'=SUM(I{group_start}:I{current_row - 1})'
-        ws.cell(current_row, 9).number_format = '#,##0.00'
-        ws.cell(current_row, 9).font = Font(name='Calibri', bold=True)
-        for col in range(1, 10):
-            ws.cell(current_row, col).fill = subtotal_fill
-        current_row += 2
-
+    # Total row — no blank rows between groups, no subtotals
     ws.cell(current_row, 7).value = 'TOTAL PACKOUT'
     ws.cell(current_row, 7).font = Font(name='Calibri', bold=True, size=11)
     ws.cell(current_row, 9).value = totals.get('totalPackout', 0)
