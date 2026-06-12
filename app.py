@@ -4,8 +4,20 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from io import BytesIO
 import base64
+import math
 
 app = Flask(__name__)
+
+def safe_num(value, default=0):
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return default
+    try:
+        v = float(value)
+        return default if math.isnan(v) or math.isinf(v) else v
+    except (TypeError, ValueError):
+        return default
 
 @app.route('/')
 def index():
@@ -36,6 +48,10 @@ def generate_xlsx():
         'CAN-FR': PatternFill(start_color='FFF7ED', end_color='FFF7ED', fill_type='solid'),
     }
 
+    # Build set of versions present in this estimate
+    versions_present = set(item.get('version', '') for item in line_items)
+
+    # Meta block
     ws['A1'] = 'Estimate'
     ws['A1'].font = Font(name='Calibri', bold=True, size=14)
     ws['B1'] = estimate_name
@@ -48,24 +64,23 @@ def generate_xlsx():
 
     ws['A3'] = 'Total Packout'
     ws['A3'].font = meta_label_font
-    ws['B3'] = totals.get('totalPackout', 0)
+    ws['B3'] = safe_num(totals.get('totalPackout'))
     ws['B3'].font = Font(name='Calibri', bold=True, size=11, color='558B2F')
     ws['B3'].number_format = '"$"#,##0.00'
 
-    ws['D2'] = 'US Packout'
-    ws['D2'].font = meta_label_font
-    ws['E2'] = totals.get('usPackout', 0)
-    ws['E2'].number_format = '"$"#,##0.00'
-
-    ws['D3'] = 'CAN-EN Packout'
-    ws['D3'].font = meta_label_font
-    ws['E3'] = totals.get('canEnPackout', 0)
-    ws['E3'].number_format = '"$"#,##0.00'
-
-    ws['D4'] = 'CAN-FR Packout'
-    ws['D4'].font = meta_label_font
-    ws['E4'] = totals.get('canFrPackout', 0)
-    ws['E4'].number_format = '"$"#,##0.00'
+    meta_row = 2
+    packout_map = [
+        ('US',     'usPackout'),
+        ('CAN-EN', 'canEnPackout'),
+        ('CAN-FR', 'canFrPackout'),
+    ]
+    for label, key in packout_map:
+        if label in versions_present:
+            ws.cell(meta_row, 4).value = f'{label} Packout'
+            ws.cell(meta_row, 4).font = meta_label_font
+            ws.cell(meta_row, 5).value = safe_num(totals.get(key))
+            ws.cell(meta_row, 5).number_format = '"$"#,##0.00'
+            meta_row += 1
 
     ws.append([])
     ws.append([])
@@ -100,7 +115,7 @@ def generate_xlsx():
         for item in items:
             inking = ', '.join(item.get('inking', [])) if isinstance(item.get('inking'), list) else item.get('inking', '')
             cutting = ', '.join(item.get('cutting', [])) if isinstance(item.get('cutting'), list) else item.get('cutting', '')
-            unit_price = round(item.get('selectedCost') or item.get('estimatedUnitPrice') or 0, 2)
+            unit_price = round(safe_num(item.get('selectedCost') or item.get('estimatedUnitPrice')), 2)
 
             ws.append([
                 item.get('version', ''),
@@ -111,11 +126,11 @@ def generate_xlsx():
                 inking,
                 cutting,
                 unit_price,
-                None  # placeholder, formula goes in below
+                None
             ])
 
-            row = ws[current_row]
-            for cell in row:
+            for col in range(1, 10):
+                cell = ws.cell(current_row, col)
                 if fill:
                     cell.fill = fill
                 cell.border = thin_border
@@ -132,10 +147,10 @@ def generate_xlsx():
 
             current_row += 1
 
-    # Total row — no blank rows between groups, no subtotals
+    # Total row
     ws.cell(current_row, 7).value = 'TOTAL PACKOUT'
     ws.cell(current_row, 7).font = Font(name='Calibri', bold=True, size=11)
-    ws.cell(current_row, 9).value = totals.get('totalPackout', 0)
+    ws.cell(current_row, 9).value = safe_num(totals.get('totalPackout'))
     ws.cell(current_row, 9).number_format = '"$"#,##0.00'
     ws.cell(current_row, 9).font = Font(name='Calibri', bold=True, size=11, color='558B2F')
     for col in range(1, 10):
